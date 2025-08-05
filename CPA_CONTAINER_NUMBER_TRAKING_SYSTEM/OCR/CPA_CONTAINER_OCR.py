@@ -5,12 +5,14 @@ import pytesseract
 from PIL import Image
 import re
 import pymysql
-import serial  # Serial imported for Serial communication
 import datetime
 from datetime import datetime as dt
 import time
 from PIL import ImageFile
-from CPA_CONTAINER_NUMBER_TRAKING_SYSTEM.LIGHT_AND_SOUND import LIGHT_SOUND as alarm
+import LIGHT_SOUND as alarm
+import easyocr
+reader = easyocr.Reader(['en'])
+
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
@@ -128,8 +130,25 @@ def Main(CAMARA_IP, DEFAULT_IMAGE_PATH, IMAGE_FOUND_PATH, IMAGE_FOUND_PATH_EXTEN
                 return int(j)
 
             def get_string(img_path):
-                result = pytesseract.image_to_string(Image.open(img_path))
-                return result.encode("utf-8")
+                img = cv2.imread(img_path)
+
+                # Perform OCR
+                results = reader.readtext(img)
+
+                # Visualize results
+                for (bbox, text, prob) in results:
+                    (top_left, top_right, bottom_right, bottom_left) = bbox
+                    top_left = tuple(map(int, top_left))
+                    bottom_right = tuple(map(int, bottom_right))
+
+                    # Draw bounding box
+                    cv2.rectangle(img, top_left, bottom_right, (0, 255, 0), 2)
+
+                    # Put text
+                    cv2.putText(img, text, (top_left[0], top_left[1] - 10),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+                for result in results:
+                    print(f"Text: {result[1]}, Confidence: {result[2]:.2f}")
 
             def contInsertStatus(contId, todayDateTime, dlvSt, CAM_ID, track_by):
                 conn = getCtmsmisConnection()
@@ -426,8 +445,8 @@ def Main(CAMARA_IP, DEFAULT_IMAGE_PATH, IMAGE_FOUND_PATH, IMAGE_FOUND_PATH_EXTEN
             def cpa_ocr_main(CAMARA_IP, DEFAULT_IMAGE_PATH, IMAGE_FOUND_PATH, IMAGE_FOUND_PATH_EXTENSION,
                              IMAGE_NOT_FOUND_PATH, TEXT_FILE_PATH, TITLE_NAME, CAM_ID):
                 # --- Debugging Start ---
-                logWrite(f"[{CAM_ID}] Attempting to open camera: {CAMARA_IP}")
-                print(f"[{CAM_ID}] Attempting to open camera: {CAMARA_IP}")
+                # logWrite(f"[{CAM_ID}] Attempting to open camera: {CAMARA_IP}")
+                # print(f"[{CAM_ID}] Attempting to open camera: {CAMARA_IP}")
                 # --- Debugging End ---
 
                 vs = VideoStream(src=CAMARA_IP).start()  # Uses imutils.video.VideoStream
@@ -435,11 +454,11 @@ def Main(CAMARA_IP, DEFAULT_IMAGE_PATH, IMAGE_FOUND_PATH, IMAGE_FOUND_PATH_EXTEN
 
                 # --- Debugging Start ---
                 is_opened_status = vs.stream.isOpened()  # Access isOpened() from the underlying cv2.VideoCapture object
-                logWrite(f"[{CAM_ID}] Camera opened status after 5s: {is_opened_status}")
-                print(f"[{CAM_ID}] Camera opened status after 5s: {is_opened_status}")
+                # logWrite(f"[{CAM_ID}] Camera opened status after 5s: {is_opened_status}")
+                # print(f"[{CAM_ID}] Camera opened status after 5s: {is_opened_status}")
                 if not is_opened_status:
-                    logWrite(f"[{CAM_ID}] CRITICAL: Camera stream did not open. Exiting cpa_ocr_main for {CAM_ID}.")
-                    print(f"[{CAM_ID}] CRITICAL: Camera stream did not open. Exiting cpa_ocr_main for {CAM_ID}.")
+                    # logWrite(f"[{CAM_ID}] CRITICAL: Camera stream did not open. Exiting cpa_ocr_main for {CAM_ID}.")
+                    # print(f"[{CAM_ID}] CRITICAL: Camera stream did not open. Exiting cpa_ocr_main for {CAM_ID}.")
                     vs.stop()  # Ensure the VideoStream is properly stopped
                     return  # Exit the function if camera didn't open
                 # --- Debugging End ---
@@ -449,131 +468,242 @@ def Main(CAMARA_IP, DEFAULT_IMAGE_PATH, IMAGE_FOUND_PATH, IMAGE_FOUND_PATH_EXTEN
                 capture_index = 0
 
                 # loop over the frames of the video
+                # while True:
+                #     frame_count += 1
+                #     # grab the current frame and initialize the occupied/unoccupied text
+                #     frame = vs.read()
+                #
+                #     # --- Debugging Start ---
+                #     if frame is None:  # vs.read() returns None if no frame is grabbed
+                #         logWrite(
+                #             f"[{CAM_ID}] Frame {frame_count}: No frame grabbed. Stream might have ended or failed. Breaking loop.")
+                #         print(
+                #             f"[{CAM_ID}] Frame {frame_count}: No frame grabbed. Stream might have ended or failed. Breaking loop.")
+                #         break  # Exit the loop if no frame is grabbed
+                #     # --- Debugging End ---
+                #
+                #     text = "Unoccupied"
+                #
+                #     # resize the frame, convert it to grayscale, and blur it
+                #     # frame = imutils.resize(frame, width=500) # This line was commented out in your original code
+                #     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                #     # gray = cv2.GaussianBlur(gray, (21, 21), 0) # This line was commented out in your original code
+                #
+                #     # if the first frame is None, initialize it
+                #     if firstFrame is None:
+                #         firstFrame = gray
+                #         # --- Debugging Start ---
+                #         # logWrite(f"[{CAM_ID}] Frame {frame_count}: Initializing firstFrame for motion detection.")
+                #         # print(f"[{CAM_ID}] Frame {frame_count}: Initializing firstFrame for motion detection.")
+                #         # --- Debugging End ---
+                #         continue  # Skip processing this first frame, wait for next for diff
+                #
+                #     # compute the absolute difference between the current frame and first frame
+                #     frameDelta = cv2.absdiff(firstFrame, gray)
+                #     thresh = cv2.threshold(frameDelta, 25, 255, cv2.THRESH_BINARY)[1]
+                #
+                #     # dilate the thresholded image to fill in holes, then find contours
+                #     thresh = cv2.dilate(thresh, None, iterations=2)
+                #     cnts = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                #     cnts = imutils.grab_contours(cnts)  # Use imutils for cross-version compatibility
+                #
+                #     i = 0  # Flag to process only the first detected large object per frame
+                #
+                #     # --- Debugging Start ---
+                #     if frame_count % 30 == 0:  # Print contour info every 30 frames to avoid log spam
+                #         logWrite(f"[{CAM_ID}] Frame {frame_count}: Contours found: {len(cnts)}")
+                #         print(f"[{CAM_ID}] Frame {frame_count}: Contours found: {len(cnts)}")
+                #     # --- Debugging End ---
+                #
+                #     # loop over the contours
+                #     for c in cnts:
+                #         # if the contour is too small, ignore it
+                #         cntArea = cv2.contourArea(c)
+                #         if cntArea < 500:  # Your existing area threshold
+                #             continue
+                #
+                #         # compute the bounding box for the contour, draw it on the frame
+                #         (x, y, w, h) = cv2.boundingRect(c)
+                #
+                #         if (w > 100 and h > 100 and i == 0):  # Your existing width/height and i==0 filter
+                #             cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                #             text = "Occupied"
+                #             frame2 = frame[y:y + h, x:x + w]
+                #
+                #             # To save multiple images, append capture_index to filename
+                #             capture_index += 1
+                #             # Construct path for default image
+                #             base_name_default = DEFAULT_IMAGE_PATH.rsplit('.', 1)[0]
+                #             extension_default = DEFAULT_IMAGE_PATH.rsplit('.', 1)[1]
+                #             current_default_image_path = f"{base_name_default}_{capture_index}.{extension_default}"
+                #
+                #             # Construct path for not found image (using its base path from Main.py)
+                #             base_name_notfound = IMAGE_NOT_FOUND_PATH.rstrip('/')  # Remove trailing slash if any
+                #             current_not_found_image_path = f"{base_name_notfound}/ocr_result_{capture_index}{IMAGE_FOUND_PATH_EXTENSION}"
+                #
+                #             # --- Debugging Start ---
+                #             # logWrite(
+                #             #     f"[{CAM_ID}] Frame {frame_count}: Saving detected object image to {current_default_image_path}")
+                #             # print(
+                #             #     f"[{CAM_ID}] Frame {frame_count}: Saving detected object image to {current_default_image_path}")
+                #             # --- Debugging End ---
+                #             cv2.imwrite(current_default_image_path, frame2)
+                #
+                #             # --- Debugging Start ---
+                #             # logWrite(f"[{CAM_ID}] Frame {frame_count}: Performing OCR on {current_default_image_path}")
+                #             # print(f"[{CAM_ID}] Frame {frame_count}: Performing OCR on {current_default_image_path}")
+                #             # --- Debugging End ---
+                #             stringValue = get_string(current_default_image_path)
+                #
+                #             # Ensure stringValue is bytes before decoding based on your get_string function's return type
+                #             if isinstance(stringValue, bytes):
+                #                 stringValue = stringValue.decode('utf-8', 'ignore')
+                #             stringValue = re.sub(r'[^a-zA-Z0-9]', '', stringValue).upper()
+                #
+                #             # --- Debugging Start ---
+                #             logWrite(f"=============================[{CAM_ID}] Frame {frame_count}: OCR Result: '{stringValue}'=============================")
+                #             print(f"=============================[{CAM_ID}] Frame {frame_count}: OCR Result: '{stringValue}'=============================")
+                #             # --- Debugging End ---
+                #
+                #             if stringValue != "":
+                #                 # For DB Communication
+                #                 getDataProcessing(stringValue, frame2)
+                #
+                #                 # --- Debugging Start ---
+                #                 logWrite(
+                #                     f"=============================[{CAM_ID}] Frame {frame_count}: Saving image with OCR result to {current_not_found_image_path}=============================")
+                #                 print(
+                #                     f"=============================[{CAM_ID}] Frame {frame_count}: Saving image with OCR result to {current_not_found_image_path}=============================")
+                #                 # --- Debugging End ---
+                #                 cv2.imwrite(current_default_image_path, frame2)
+                #
+                #             # i = 1  # Set i to 1 to ensure only one object is processed per frame based on your original logic
+                #             # If you want to process ALL detected objects in a frame, remove this line.
+                #
+                #     key = cv2.waitKey(1) & 0xFF
+                #
+                #     # if the `q` key is pressed, break from the loop
+                #     if key == ord("q"):
+                #         logWrite(f"[{CAM_ID}] 'q' pressed. Exiting loop.")
+                #         print(f"[{CAM_ID}] 'q' pressed. Exiting loop.")
+                #         break
+
+                # loop over the frames of the video
                 while True:
                     frame_count += 1
-                    # grab the current frame and initialize the occupied/unoccupied text
                     frame = vs.read()
 
-                    # --- Debugging Start ---
-                    if frame is None:  # vs.read() returns None if no frame is grabbed
-                        logWrite(
-                            f"[{CAM_ID}] Frame {frame_count}: No frame grabbed. Stream might have ended or failed. Breaking loop.")
-                        print(
-                            f"[{CAM_ID}] Frame {frame_count}: No frame grabbed. Stream might have ended or failed. Breaking loop.")
-                        break  # Exit the loop if no frame is grabbed
-                    # --- Debugging End ---
+                    if frame is None:
+                        # logWrite(
+                        #     f"[{CAM_ID}] Frame {frame_count}: No frame grabbed. Stream might have ended or failed. Breaking loop.")
+                        # print(
+                        #     f"[{CAM_ID}] Frame {frame_count}: No frame grabbed. Stream might have ended or failed. Breaking loop.")
+                        break
 
                     text = "Unoccupied"
-
-                    # resize the frame, convert it to grayscale, and blur it
-                    # frame = imutils.resize(frame, width=500) # This line was commented out in your original code
                     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                    # gray = cv2.GaussianBlur(gray, (21, 21), 0) # This line was commented out in your original code
 
-                    # if the first frame is None, initialize it
                     if firstFrame is None:
                         firstFrame = gray
-                        # --- Debugging Start ---
-                        # logWrite(f"[{CAM_ID}] Frame {frame_count}: Initializing firstFrame for motion detection.")
-                        # print(f"[{CAM_ID}] Frame {frame_count}: Initializing firstFrame for motion detection.")
-                        # --- Debugging End ---
-                        continue  # Skip processing this first frame, wait for next for diff
+                        continue
 
-                    # compute the absolute difference between the current frame and first frame
                     frameDelta = cv2.absdiff(firstFrame, gray)
                     thresh = cv2.threshold(frameDelta, 25, 255, cv2.THRESH_BINARY)[1]
-
-                    # dilate the thresholded image to fill in holes, then find contours
                     thresh = cv2.dilate(thresh, None, iterations=2)
                     cnts = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                    cnts = imutils.grab_contours(cnts)  # Use imutils for cross-version compatibility
+                    cnts = imutils.grab_contours(cnts)
 
-                    i = 0  # Flag to process only the first detected large object per frame
+                    # Removed 'i = 0' here. You had 'i=0' inside the loop, which means only the first detected contour was processed.
+                    # If you truly want *every* large object in a frame to be saved, remove the 'i=1' line later.
+                    # If you want only *one* per frame, keep 'i=0' here and 'i=1' inside the contour loop.
+                    # Assuming you want to save every image captured where motion is detected, we'll keep `capture_index` incrementing.
 
-                    # --- Debugging Start ---
-                    if frame_count % 30 == 0:  # Print contour info every 30 frames to avoid log spam
-                        logWrite(f"[{CAM_ID}] Frame {frame_count}: Contours found: {len(cnts)}")
-                        print(f"[{CAM_ID}] Frame {frame_count}: Contours found: {len(cnts)}")
-                    # --- Debugging End ---
-
-                    # loop over the contours
                     for c in cnts:
-                        # if the contour is too small, ignore it
                         cntArea = cv2.contourArea(c)
-                        if cntArea < 500:  # Your existing area threshold
+                        if cntArea < 500:
                             continue
 
-                        # compute the bounding box for the contour, draw it on the frame
                         (x, y, w, h) = cv2.boundingRect(c)
 
-                        if (w > 100 and h > 100 and i == 0):  # Your existing width/height and i==0 filter
+                        # Process if the detected object meets size criteria
+                        # Removed 'and i == 0' from here. If you want to save all detected containers, this condition needs to be adjusted
+                        # If you want to save ONLY the first valid contour per frame, then uncomment 'i=0' above and keep 'and i==0'
+                        if (w > 100 and h > 100):
                             cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
                             text = "Occupied"
                             frame2 = frame[y:y + h, x:x + w]
 
-                            # To save multiple images, append capture_index to filename
-                            capture_index += 1
-                            # Construct path for default image
-                            base_name_default = DEFAULT_IMAGE_PATH.rsplit('.', 1)[0]
+                            # Generate a unique filename using timestamp and incrementing index
+                            # Ensure a clean base name without extension for _default_ image
+                            base_name_default_no_ext = DEFAULT_IMAGE_PATH.rsplit('.', 1)[0]
                             extension_default = DEFAULT_IMAGE_PATH.rsplit('.', 1)[1]
-                            current_default_image_path = f"{base_name_default}_{capture_index}.{extension_default}"
 
-                            # Construct path for not found image (using its base path from Main.py)
-                            base_name_notfound = IMAGE_NOT_FOUND_PATH.rstrip('/')  # Remove trailing slash if any
-                            current_not_found_image_path = f"{base_name_notfound}/ocr_result_{capture_index}{IMAGE_FOUND_PATH_EXTENSION}"
+                            # Get current timestamp for better uniqueness
+                            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")[
+                                        :-3]  # microseconds to milliseconds
+                            unique_filename_prefix = f"{timestamp}_{capture_index}"
 
-                            # --- Debugging Start ---
+                            # Path for the initial detected image (before OCR result is known)
+                            current_default_image_path = f"{base_name_default_no_ext}_{unique_filename_prefix}.{extension_default}"
+                            cv2.imwrite(current_default_image_path, frame2)
+
                             # logWrite(
                             #     f"[{CAM_ID}] Frame {frame_count}: Saving detected object image to {current_default_image_path}")
                             # print(
                             #     f"[{CAM_ID}] Frame {frame_count}: Saving detected object image to {current_default_image_path}")
-                            # --- Debugging End ---
-                            cv2.imwrite(current_default_image_path, frame2)
 
-                            # --- Debugging Start ---
-                            # logWrite(f"[{CAM_ID}] Frame {frame_count}: Performing OCR on {current_default_image_path}")
-                            # print(f"[{CAM_ID}] Frame {frame_count}: Performing OCR on {current_default_image_path}")
-                            # --- Debugging End ---
                             stringValue = get_string(current_default_image_path)
-
-                            # Ensure stringValue is bytes before decoding based on your get_string function's return type
+                            print(f"string value {stringValue}")
                             if isinstance(stringValue, bytes):
                                 stringValue = stringValue.decode('utf-8', 'ignore')
                             stringValue = re.sub(r'[^a-zA-Z0-9]', '', stringValue).upper()
 
-                            # --- Debugging Start ---
-                            logWrite(f"=============================[{CAM_ID}] Frame {frame_count}: OCR Result: '{stringValue}'=============================")
-                            print(f"=============================[{CAM_ID}] Frame {frame_count}: OCR Result: '{stringValue}'=============================")
-                            # --- Debugging End ---
+                            # logWrite(
+                            #     f"=============================[{CAM_ID}] Frame {frame_count}: OCR Result: '{stringValue}'=============================")
+                            # print(
+                            #     f"=============================[{CAM_ID}] Frame {frame_count}: OCR Result: '{stringValue}'=============================")
 
                             if stringValue != "":
-                                # For DB Communication
                                 getDataProcessing(stringValue, frame2)
 
-                                # --- Debugging Start ---
+                                # Now, save the image again but with a name indicating OCR was successful.
+                                # This path should reflect the IMAGE_FOUND_PATH structure.
+                                # Ensure IMAGE_FOUND_PATH doesn't have a file extension in its variable name,
+                                # as you're appending IMAGE_FOUND_PATH_EXTENSION.
+                                # Assuming IMAGE_FOUND_PATH is a directory and IMAGE_FOUND_PATH_EXTENSION is like '.jpg'
+                                found_image_name = f"ocr_found_{stringValue}_{unique_filename_prefix}{IMAGE_FOUND_PATH_EXTENSION}"
+                                current_found_image_path = f"{IMAGE_FOUND_PATH.rstrip('/')}/{found_image_name}"  # Ensure no double slashes
+
                                 logWrite(
-                                    f"=============================[{CAM_ID}] Frame {frame_count}: Saving image with OCR result to {current_not_found_image_path}=============================")
+                                    # f"=============================[{CAM_ID}] Frame {frame_count}: Saving FOUND image with OCR result to {current_found_image_path}============================= result {stringValue}"
+                                    f"ocr result {stringValue}")
+
                                 print(
-                                    f"=============================[{CAM_ID}] Frame {frame_count}: Saving image with OCR result to {current_not_found_image_path}=============================")
-                                # --- Debugging End ---
-                                cv2.imwrite(current_default_image_path, frame2)
+                                    # f"=============================[{CAM_ID}] Frame {frame_count}: Saving FOUND image with OCR result to {current_found_image_path}============================= result {stringValue}"
+                                    f"ocr result {stringValue}"
+                                )
+                                cv2.imwrite(current_found_image_path, frame2)  # Save to the "found" directory
 
-                            # i = 1  # Set i to 1 to ensure only one object is processed per frame based on your original logic
-                            # If you want to process ALL detected objects in a frame, remove this line.
+                            else:  # stringValue is empty, meaning OCR didn't find anything usable
+                                # Save to the "not found" directory
+                                not_found_image_name = f"ocr_not_found_{unique_filename_prefix}{IMAGE_FOUND_PATH_EXTENSION}"  # Re-using IMAGE_FOUND_PATH_EXTENSION for consistency
+                                current_not_found_image_path = f"{IMAGE_NOT_FOUND_PATH.rstrip('/')}/{not_found_image_name}"
 
-                    key = cv2.waitKey(1) & 0xFF
+                                # logWrite(
+                                #     f"=============================[{CAM_ID}] Frame {frame_count}: Saving NOT FOUND image to {current_not_found_image_path}=============================")
+                                # print(
+                                #     f"=============================[{CAM_ID}] Frame {frame_count}: Saving NOT FOUND image to {current_not_found_image_path}=============================")
+                                cv2.imwrite(current_not_found_image_path, frame2)
 
-                    # if the `q` key is pressed, break from the loop
-                    if key == ord("q"):
-                        logWrite(f"[{CAM_ID}] 'q' pressed. Exiting loop.")
-                        print(f"[{CAM_ID}] 'q' pressed. Exiting loop.")
-                        break
+                            capture_index += 1  # Increment only after processing a successful capture
+                            # i = 1 # Keep this if you only want to process the first large contour per frame.
+                            # Remove if you want to process all large contours in a single frame
 
                 # cleanup the camera and close any open windows
                 vs.stop()  # This stops the imutils.video.VideoStream
                 cv2.destroyAllWindows()
-                logWrite(f"[{CAM_ID}] Camera released and windows closed.")
-                print(f"[{CAM_ID}] Camera released and windows closed.")
+                # logWrite(f"[{CAM_ID}] Camera released and windows closed.")
+                # print(f"[{CAM_ID}] Camera released and windows closed.")
             cpa_ocr_main(CAMARA_IP, DEFAULT_IMAGE_PATH, IMAGE_FOUND_PATH, IMAGE_FOUND_PATH_EXTENSION, IMAGE_NOT_FOUND_PATH, TEXT_FILE_PATH, TITLE_NAME, CAM_ID)
 
         except BaseException as e:
